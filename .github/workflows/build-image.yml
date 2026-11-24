@@ -2,7 +2,7 @@ name: 构建 Emby DG1 镜像
 
 on:
   push:
-    branches: [main]
+    branches: [main, fix/dg1-hdr-opencl]
     paths:
       - 'build/**'
       - '.github/workflows/build-image.yml'
@@ -26,6 +26,8 @@ jobs:
       - uses: actions/checkout@v6
         with:
           persist-credentials: false
+      - name: 检查 FFmpeg 参数改写
+        run: python3 .github/scripts/check-ffmpeg-wrapper.py
       - uses: docker/setup-buildx-action@v3
       - name: 登录 GitHub 容器仓库
         env:
@@ -36,10 +38,16 @@ jobs:
         run: |
           version=$(sed -n 's/^ARG EMBY_V=//p' build/Dockerfile)
           test -n "$version"
+          image_tag="$version"
+          extra_tags=(--tag "$IMAGE:latest")
+          if [[ "$GITHUB_REF_NAME" == fix/dg1-hdr-opencl ]]; then
+            image_tag="$version-dg1-hdr"
+            extra_tags=()
+          fi
           docker buildx build --pull --platform linux/amd64 \
             --file build/Dockerfile \
-            --tag "$IMAGE:$version" --tag "$IMAGE:latest" \
+            --tag "$IMAGE:$image_tag" "${extra_tags[@]}" \
             --metadata-file "$RUNNER_TEMP/image-metadata.json" \
             --push build/
           digest=$(jq -er '.["containerimage.digest"]' "$RUNNER_TEMP/image-metadata.json")
-          printf '\n镜像：`%s:%s`\n\n摘要：`%s`\n' "$IMAGE" "$version" "$digest" >> "$GITHUB_STEP_SUMMARY"
+          printf '\n镜像：`%s:%s`\n\n摘要：`%s`\n' "$IMAGE" "$image_tag" "$digest" >> "$GITHUB_STEP_SUMMARY"

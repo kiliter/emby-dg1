@@ -14,7 +14,7 @@ ENV TZ=Asia/Shanghai \
     GIDLIST=2 \
     PROGRAM_DATA=/config \
     FFDETECT=/usr/bin/ffdetect-emby \
-    FFMPEG=/usr/bin/ffmpeg \
+    FFMPEG=/usr/local/bin/emby-ffmpeg \
     FFPROBE=/usr/bin/ffprobe \
     LIBVA_DRIVERS_PATH=/usr/lib/dri \
     LIBVA_DRIVER_NAME=iHD
@@ -50,6 +50,8 @@ RUN curl -fSL --retry 4 --retry-all-errors \
     && rm /tmp/s6-installer \
     && test -x /init
 
+# Emby 调用包装脚本，DG1 的 HDR QSV 任务先创建 VAAPI 父设备。
+COPY --chmod=0755 emby-ffmpeg /usr/local/bin/emby-ffmpeg
 COPY --chmod=0755 run finish /etc/services.d/emby-server-s6/
 
 WORKDIR /config

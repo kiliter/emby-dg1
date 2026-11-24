@@ -1,0 +1,43 @@
+#!/usr/bin/bash
+set -euo pipefail
+
+arguments=("$@")
+needs_opencl=false
+for ((index = 0; index + 1 < ${#arguments[@]}; index++)); do
+    case "${arguments[index]}" in
+        -vf|-filter:v|-filter:v:*|-filter_complex)
+            filter=${arguments[index + 1]}
+            if [[ $filter == *derive_device=opencl* && $filter == *tonemap_opencl* ]]; then
+                needs_opencl=true
+                break
+            fi
+            ;;
+    esac
+done
+
+if [[ $needs_opencl == false ]]; then
+    exec /usr/bin/ffmpeg "$@"
+fi
+
+# QSV 从独立的 VAAPI 设备派生后，FFmpeg 才能沿设备链创建 OpenCL 上下文。
+qsv_device='^qsv=([[:alnum:]_]+):hw_any,child_device=(/dev/dri/renderD[0-9]+)$'
+arguments=()
+while (($#)); do
+    if [[ $1 == -init_hw_device && ${2-} =~ $qsv_device ]]; then
+        name=${BASH_REMATCH[1]}
+        render_node=${BASH_REMATCH[2]}
+        device="/sys/class/drm/${render_node##*/}/device"
+        if [[ -r "$device/vendor" && -r "$device/device" ]] &&
+           [[ $(<"$device/vendor") == 0x8086 && $(<"$device/device") == 0x490[5-9] ]]; then
+            va_name="emby_va_$name"
+            arguments+=(-init_hw_device "vaapi=$va_name:$render_node")
+            arguments+=(-init_hw_device "qsv=$name@$va_name")
+            shift 2
+            continue
+        fi
+    fi
+    arguments+=("$1")
+    shift
+done
+
+exec /usr/bin/ffmpeg "${arguments[@]}"
