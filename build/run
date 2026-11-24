@@ -1,0 +1,26 @@
+#!/usr/bin/with-contenv /usr/bin/dash
+set -eu
+
+# dash 保留 Compose 传入的 UID，避免 Bash 将 UID 替换成当前进程的用户 ID。
+if [ "$(stat -c '%u:%g' /config)" != "$UID:$GID" ]; then
+    chown "$UID:$GID" /config
+fi
+
+# 保留用户传入的附加组，并按设备实际组 ID 追加。
+groups=${GIDLIST:-$GID}
+for device in /dev/dri/*; do
+    [ -c "$device" ] || continue
+    device_gid=$(stat -c '%g' "$device")
+    case ",$groups," in
+        *",$device_gid,"*) ;;
+        *) groups="$groups,$device_gid" ;;
+    esac
+done
+
+exec s6-applyuidgid -u "$UID" -g "$GID" -G "$groups" \
+    /usr/bin/dotnet /system/EmbyServer.dll \
+    -programdata "$PROGRAM_DATA" \
+    -ffdetect "$FFDETECT" \
+    -ffmpeg "$FFMPEG" \
+    -ffprobe "$FFPROBE" \
+    -restartexitcode 3

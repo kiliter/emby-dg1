@@ -1,0 +1,45 @@
+name: 构建 Emby DG1 镜像
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'build/**'
+      - '.github/workflows/build-image.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  packages: write
+
+concurrency:
+  group: emby-dg1-image
+  cancel-in-progress: false
+
+jobs:
+  image:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    env:
+      IMAGE: ghcr.io/${{ github.repository }}
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          persist-credentials: false
+      - uses: docker/setup-buildx-action@v3
+      - name: 登录 GitHub 容器仓库
+        env:
+          GHCR_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: printf '%s' "$GHCR_TOKEN" | docker login ghcr.io --username "$GITHUB_ACTOR" --password-stdin
+      - name: 构建并推送 linux/amd64 镜像
+        shell: bash
+        run: |
+          version=$(sed -n 's/^ARG EMBY_V=//p' build/Dockerfile)
+          test -n "$version"
+          docker buildx build --pull --platform linux/amd64 \
+            --file build/Dockerfile \
+            --tag "$IMAGE:$version" --tag "$IMAGE:latest" \
+            --metadata-file "$RUNNER_TEMP/image-metadata.json" \
+            --push build/
+          digest=$(jq -er '.["containerimage.digest"]' "$RUNNER_TEMP/image-metadata.json")
+          printf '\n镜像：`%s:%s`\n\n摘要：`%s`\n' "$IMAGE" "$version" "$digest" >> "$GITHUB_STEP_SUMMARY"
