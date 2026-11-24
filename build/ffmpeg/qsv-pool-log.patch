@@ -1,0 +1,24 @@
+--- a/libavutil/hwcontext_qsv.c
++++ b/libavutil/hwcontext_qsv.c
+@@ -107,6 +107,7 @@
+     mfxFrameSurface1 *surfaces_internal;
+     mfxHDLPair *handle_pairs_internal;
+     int             nb_surfaces_used;
++    int             pool_exhaustion_reported;
+ 
+     // used in the frame allocator for non-opaque surfaces
+     mfxMemId *mem_ids;
+@@ -420,6 +421,13 @@
+                                 sizeof(*hwctx->surfaces), qsv_pool_release_dummy, NULL, 0);
+     }
+ 
++    if (!s->pool_exhaustion_reported) {
++        av_log(ctx, AV_LOG_WARNING,
++               "QSV 固定帧池已用尽: %d 个表面, %dx%d, %s\n",
++               s->nb_surfaces_used, ctx->width, ctx->height,
++               av_get_pix_fmt_name(ctx->sw_format));
++        s->pool_exhaustion_reported = 1;
++    }
+     return NULL;
+ }
+ 

@@ -1,6 +1,6 @@
 #!/usr/bin/bash
 set -euo pipefail
-# 只重编 /usr/bin/ffmpeg 使用的分片库，链接同一镜像中 Arch 提供的其他 FFmpeg 库。
+# 重编分片和 QSV 帧池所在的库，链接同一镜像中 Arch 提供的其他 FFmpeg 库。
 test "$(pacman -Q ffmpeg)" = 'ffmpeg 2:9.1-1'
 curl -fsSL --retry 4 https://ffmpeg.org/releases/ffmpeg-9.1.tar.xz -o ffmpeg.tar.xz
 echo '1a4d394ae63d190a526cd052eb4415c156b5c5e2df37efab41a7de0b8fde2433  ffmpeg.tar.xz' | sha256sum -c -
@@ -8,16 +8,18 @@ tar -xf ffmpeg.tar.xz
 cd ffmpeg-9.1
 patch -p1 < ../arch-first-dts.patch
 patch -p1 < ../segment-seek.patch
+patch -p1 < ../qsv-pool-log.patch
 mapfile -t flags < <(/usr/bin/ffmpeg -buildconf 2>/dev/null | sed -n 's/^[[:space:]]*\(--.*\)$/\1/p')
 [[ " ${flags[*]} " == *' --enable-opencl '* && " ${flags[*]} " == *' --enable-libvpl '* ]]
-./configure "${flags[@]}" --disable-lto
-make -j"$(nproc)" DEP_LIBS= libavformat/libavformat.so
-installed=$(readlink -f /usr/lib/libavformat.so)
-library=$(readlink -f libavformat/libavformat.so)
-test "$(objdump -p "$installed" | awk '/SONAME/{print $2}')" = "$(basename "$library")"
-# 保持 Arch 额外导出的符号，包括 Chromium 使用的 av_stream_get_first_dts。
+./configure "${flags[@]}"
+make -j"$(nproc)" DEP_LIBS= libavutil/libavutil.so libavformat/libavformat.so
 symbols() { nm -D --defined-only --format=posix "$1" | awk '{print $1}' | LC_ALL=C sort -u; }
-missing=$(LC_ALL=C comm -23 <(symbols "$installed") <(symbols "$library"))
-[[ -z "$missing" ]] || { echo "$missing" >&2; exit 1; }
-strip --strip-unneeded "$library"
-install -Dm755 "$library" "/patched$installed"
+for name in avutil avformat; do
+    installed=$(readlink -f "/usr/lib/lib$name.so")
+    library=$(readlink -f "lib$name/lib$name.so")
+    test "$(objdump -p "$installed" | awk '/SONAME/{print $2}')" = "$(basename "$library")"
+    missing=$(LC_ALL=C comm -23 <(symbols "$installed") <(symbols "$library"))
+    [[ -z "$missing" ]] || { echo "$missing" >&2; exit 1; }
+    strip --strip-unneeded "$library"
+    install -Dm755 "$library" "/patched$installed"
+done
