@@ -2,7 +2,7 @@ name: 构建 Emby DG1 镜像
 
 on:
   push:
-    branches: [main, fix/dg1-hdr-opencl]
+    branches: [main, fix/dg1-hdr-opencl, fix/dg1-seek-pgs]
     paths:
       - 'build/**'
       - '.github/workflows/build-image.yml'
@@ -19,7 +19,7 @@ concurrency:
 jobs:
   image:
     runs-on: ubuntu-latest
-    timeout-minutes: 30
+    timeout-minutes: 60
     env:
       IMAGE: ghcr.io/${{ github.repository }}
     steps:
@@ -42,6 +42,9 @@ jobs:
           extra_tags=(--tag "$IMAGE:latest")
           if [[ "$GITHUB_REF_NAME" == fix/dg1-hdr-opencl ]]; then
             image_tag="$version-dg1-hdr"
+            extra_tags=()
+          elif [[ "$GITHUB_REF_NAME" == fix/dg1-seek-pgs ]]; then
+            image_tag="$version-dg1-seek"
             extra_tags=()
           fi
           docker buildx build --pull --platform linux/amd64 \

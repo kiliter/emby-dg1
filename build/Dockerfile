@@ -1,4 +1,4 @@
-FROM archlinux:latest
+FROM archlinux:latest AS runtime
 
 ARG EMBY_V=4.10.2.0
 ARG EMBY_SHA256=80da662b58b7fd058f80fa3e21b3c4e0ec6ccfb1a5cab9e8aaca718907e44ba3
@@ -28,6 +28,18 @@ RUN pacman -Syu --needed --noconfirm \
         ttf-dejavu unzip vpl-gpu-rt \
     && pacman -Scc --noconfirm \
     && ln -sf /usr/share/zoneinfo/Asia/Shanghai /etc/localtime
+
+# 构建依赖只进入编译阶段。成品保留原版 Arch 的 QSV、VAAPI 和 OpenCL。
+FROM runtime AS ffmpeg-build
+RUN pacman -S --needed --noconfirm base-devel amf-headers avisynthplus clang \
+        ffnvcodec-headers frei0r-plugins git ladspa mesa nasm opencl-headers spirv-headers vulkan-headers
+WORKDIR /tmp/ffmpeg-build
+COPY ffmpeg/ ./
+RUN bash build-libavformat
+
+FROM runtime
+COPY --from=ffmpeg-build /patched/ /
+RUN --mount=type=bind,source=ffmpeg/check-seek,target=/tmp/check-seek bash /tmp/check-seek
 
 # 用同一套 Arch 运行库启动官方 Emby。保留系统 FFmpeg 的 VAAPI、QSV 和 OpenCL 支持。
 RUN curl -fSL --retry 4 --retry-all-errors \

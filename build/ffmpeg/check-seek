@@ -1,0 +1,29 @@
+#!/usr/bin/bash
+set -euo pipefail
+dir=$(mktemp -d)
+trap 'rm -rf -- "$dir"' EXIT
+cd "$dir"
+# 生成与片库无关的小样本，用输入时间偏移模拟从长片中间开始复制带时间戳的包。
+ffmpeg -v error -f lavfi -i testsrc2=size=64x64:rate=10 -t 15 -c:v mpeg2video -g 1 -bf 0 sample.mkv
+for spec in '0 0 0' '2700 -00:45:00.000 450' '5604 -01:33:24.000 934'; do
+    read -r seek delta number <<< "$spec"
+    mkdir "$number"
+    ffmpeg -v error -copyts -itsoffset "$seek" -i sample.mkv -map 0:v:0 -c:v copy \
+        -avoid_negative_ts disabled -f segment -segment_format mpegts -segment_time 6 \
+        -segment_time_delta "$delta" -segment_start_number "$number" -break_non_keyframes 1 \
+        -segment_list "$number/test.m3u8" "$number/%d.ts"
+    for ((i=0; i<3; i++)); do
+        file="$number/$((number+i)).ts"
+        test -s "$file"
+        packet_time=$(ffprobe -v error -show_entries format=start_time \
+            -of csv=p=0 "$file")
+        duration=$(ffprobe -v error -show_entries format=duration -of csv=p=0 "$file")
+        # TS 复用器可引入固定延迟。分别验证切点间隔和每段的实际媒体时长。
+        if ((i == 0)); then first_time=$packet_time; fi
+        awk -v t="$packet_time" -v start="$first_time" -v seek="$seek" -v d="$duration" -v i="$i" \
+            'BEGIN { diff=t-start-6*i; expected=(i==2 ? 3 : 6);
+                     exit !(start >= seek-0.5 && start <= seek+2 && diff > -0.25 && diff < 0.25 &&
+                            d > expected-0.25 && d < expected+0.25) }'
+        echo "$file start=$packet_time duration=$duration"
+    done
+done

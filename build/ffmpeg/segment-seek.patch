@@ -1,0 +1,38 @@
+--- a/libavformat/segment.c
++++ b/libavformat/segment.c
+@@ -33,6 +33,7 @@
+ #include "mux.h"
+ 
+ #include "libavutil/avassert.h"
++#include "libavutil/common.h"
+ #include "libavutil/internal.h"
+ #include "libavutil/log.h"
+ #include "libavutil/mem.h"
+@@ -925,7 +926,8 @@
+         seg->reference_stream_first_pts = av_rescale_q(pkt->pts, st->time_base, AV_TIME_BASE_Q);
+     }
+ 
+-    if (seg->reference_stream_first_pts != AV_NOPTS_VALUE) {
++    /* Emby 的负偏移已包含拖动位置，不能再叠加参考流的首帧时间。 */
++    if (seg->time_delta >= 0 && seg->reference_stream_first_pts != AV_NOPTS_VALUE) {
+         end_pts += (INT64_MAX - end_pts >= seg->reference_stream_first_pts) ?
+                     seg->reference_stream_first_pts :
+                     INT64_MAX - end_pts;
+@@ -941,7 +943,7 @@
+          (pkt->pts != AV_NOPTS_VALUE &&
+           pkt_pts_avtb - seg->cur_entry.start_pts >= seg->min_seg_duration &&
+           av_compare_ts(pkt->pts, st->time_base,
+-                        end_pts - seg->time_delta, AV_TIME_BASE_Q) >= 0))) {
++                        av_sat_sub64(end_pts, seg->time_delta), AV_TIME_BASE_Q) >= 0))) {
+         /* sanitize end time in case last packet didn't have a defined duration */
+         if (seg->cur_entry.last_duration == 0)
+             seg->cur_entry.end_time = (double)pkt->pts * av_q2d(st->time_base);
+@@ -1076,7 +1078,7 @@
+     { "segment_clocktime_offset", "set segment clocktime offset",        OFFSET(clocktime_offset), AV_OPT_TYPE_DURATION, {.i64 = 0}, 0, 86400000000LL, E},
+     { "segment_clocktime_wrap_duration", "set segment clocktime wrapping duration", OFFSET(clocktime_wrap_duration), AV_OPT_TYPE_DURATION, {.i64 = INT64_MAX}, 0, INT64_MAX, E},
+     { "segment_time",      "set segment duration",                       OFFSET(time),AV_OPT_TYPE_DURATION, {.i64 = 2000000}, INT64_MIN, INT64_MAX,       E },
+-    { "segment_time_delta","set approximation value used for the segment times", OFFSET(time_delta), AV_OPT_TYPE_DURATION, {.i64 = 0}, 0, INT64_MAX, E },
++    { "segment_time_delta","set approximation value used for the segment times", OFFSET(time_delta), AV_OPT_TYPE_DURATION, {.i64 = 0}, INT64_MIN, INT64_MAX, E },
+     { "min_seg_duration",  "set minimum segment duration",               OFFSET(min_seg_duration), AV_OPT_TYPE_DURATION, {.i64 = 0}, 0, INT64_MAX, E },
+     { "segment_times",     "set segment split time points",              OFFSET(times_str),AV_OPT_TYPE_STRING,{.str = NULL},  0, 0,       E },
+     { "segment_frames",    "set segment split frame numbers",            OFFSET(frames_str),AV_OPT_TYPE_STRING,{.str = NULL},  0, 0,       E },
